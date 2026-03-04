@@ -24,6 +24,10 @@ async def main() -> None:
         stream=sys.stdout,
     )
     logger = logging.getLogger(__name__)
+    
+    # Silence noisy libraries
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     # Initialize database
     db = get_db()

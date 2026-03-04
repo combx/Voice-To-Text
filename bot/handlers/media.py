@@ -265,126 +265,26 @@ async def _process_media(message: Message, input_path: str, file_name: str, file
             cleanup_temp_file(wav_path)
 
 
-# ─── Voice messages ─────────────────────────────────────────────────
+# ─── Generic Media Handler ──────────────────────────────────────────
 
-@router.message(F.voice)
-async def handle_voice(message: Message) -> None:
-    """Handle voice messages (audio notes)."""
+async def _handle_media_item(
+    message: Message,
+    media_obj,
+    file_type: str,
+    default_name: str,
+    suffix: str | None = None,
+    check_format: bool = False
+) -> None:
+    """Generic handler for validating, downloading, and processing media."""
     if not await is_user_authorized(message):
         return
 
-    file_size = message.voice.file_size or 0
-    size_str = format_file_size(file_size) if file_size else ""
-    await message.answer(f"⏳ Голосовое сообщение получено ({size_str}), обрабатываю...")
+    file_name = getattr(media_obj, "file_name", None) or default_name
 
-    try:
-        input_path, dl_time = await _download_telegram_file(
-            message.bot, message.voice.file_id, suffix=".ogg"
-        )
-        file_name = "Голосовое сообщение"
-        await _process_media(message, input_path, file_name, "voice", file_size, dl_time)
-    except Exception as e:
-        logger.error("FATAL ERROR in handle_voice: %s", e, exc_info=True)
-        await message.answer("❌ Произошла ошибка при скачивании голосового сообщения.")
-
-
-# ─── Video notes (кружочки) ─────────────────────────────────────────
-
-@router.message(F.video_note)
-async def handle_video_note(message: Message) -> None:
-    """Handle video notes (circle videos)."""
-    if not await is_user_authorized(message):
-        return
-
-    file_size = message.video_note.file_size or 0
-    size_str = format_file_size(file_size) if file_size else ""
-    await message.answer(f"⏳ Видеосообщение получено ({size_str}), обрабатываю...")
-
-    try:
-        input_path, dl_time = await _download_telegram_file(
-            message.bot, message.video_note.file_id, suffix=".mp4"
-        )
-        file_name = "Видеосообщение (кружок)"
-        await _process_media(message, input_path, file_name, "video_note", file_size, dl_time)
-    except Exception as e:
-        logger.error("FATAL ERROR in handle_video_note: %s", e, exc_info=True)
-        await message.answer("❌ Произошла ошибка при скачивании кружочка.")
-
-
-# ─── Video messages ──────────────────────────────────────────────────
-
-@router.message(F.video)
-async def handle_video(message: Message) -> None:
-    """Handle video files sent as video messages."""
-    if not await is_user_authorized(message):
-        return
-
-    config = load_config()
-    if message.video.file_size and message.video.file_size > config.app.max_file_size:
-        max_mb = config.app.max_file_size / (1024 * 1024)
-        await message.answer(f"❌ Файл слишком большой. Максимум: {max_mb:.0f} МБ")
-        return
-
-    file_size = message.video.file_size or 0
-    size_str = format_file_size(file_size) if file_size else ""
-    await message.answer(f"⏳ Видео получено ({size_str}), обрабатываю...")
-
-    try:
-        file_name = message.video.file_name or "video.mp4"
-        input_path, dl_time = await _download_telegram_file(
-            message.bot, message.video.file_id, suffix=Path(file_name).suffix or ".mp4"
-        )
-        await _process_media(message, input_path, file_name, "video", file_size, dl_time)
-    except Exception as e:
-        logger.error("FATAL ERROR in handle_video: %s", e, exc_info=True)
-        await message.answer("❌ Произошла ошибка при скачивании видео.")
-
-
-# ─── Audio files ─────────────────────────────────────────────────────
-
-@router.message(F.audio)
-async def handle_audio(message: Message) -> None:
-    """Handle audio files (music, podcasts, etc.)."""
-    if not await is_user_authorized(message):
-        return
-
-    config = load_config()
-    if message.audio.file_size and message.audio.file_size > config.app.max_file_size:
-        max_mb = config.app.max_file_size / (1024 * 1024)
-        await message.answer(f"❌ Файл слишком большой. Максимум: {max_mb:.0f} МБ")
-        return
-
-    file_size = message.audio.file_size or 0
-    size_str = format_file_size(file_size) if file_size else ""
-    await message.answer(f"⏳ Аудиофайл получен ({size_str}), обрабатываю...")
-
-    try:
-        file_name = message.audio.file_name or "audio.mp3"
-        input_path, dl_time = await _download_telegram_file(
-            message.bot, message.audio.file_id, suffix=Path(file_name).suffix or ".mp3"
-        )
-        await _process_media(message, input_path, file_name, "audio", file_size, dl_time)
-    except Exception as e:
-        logger.error("FATAL ERROR in handle_audio: %s", e, exc_info=True)
-        await message.answer("❌ Произошла ошибка при скачивании аудиофайла.")
-
-
-# ─── Documents (uploaded files) ──────────────────────────────────────
-
-@router.message(F.document)
-async def handle_document(message: Message) -> None:
-    """Handle uploaded documents — only process supported audio/video formats."""
-    if not await is_user_authorized(message):
-        return
-
-    file_name = message.document.file_name or "file"
-
-    if not is_supported_format(file_name):
+    if check_format and not is_supported_format(file_name):
         supported = ", ".join(sorted(
             ext.lstrip(".").upper()
-            for ext in sorted(
-                list({".mp3", ".wav", ".ogg", ".flac", ".m4a", ".mp4", ".avi", ".mkv", ".mov", ".webm"})
-            )
+            for ext in sorted(list({".mp3", ".wav", ".ogg", ".flac", ".m4a", ".mp4", ".avi", ".mkv", ".mov", ".webm"}))
         ))
         await message.answer(
             f"❌ Формат файла не поддерживается.\n\n"
@@ -393,21 +293,79 @@ async def handle_document(message: Message) -> None:
         return
 
     config = load_config()
-    if message.document.file_size and message.document.file_size > config.app.max_file_size:
+    file_size = getattr(media_obj, "file_size", 0) or 0
+    if file_size > config.app.max_file_size:
         max_mb = config.app.max_file_size / (1024 * 1024)
         await message.answer(f"❌ Файл слишком большой. Максимум: {max_mb:.0f} МБ")
         return
 
-    file_size = message.document.file_size or 0
     size_str = format_file_size(file_size) if file_size else ""
-    await message.answer(f"⏳ Файл «{file_name}» получен ({size_str}), обрабатываю...")
+    type_display = {
+        "voice": "Голосовое сообщение",
+        "video_note": "Видеосообщение",
+        "video": "Видео",
+        "audio": "Аудиофайл",
+    }.get(file_type, f"Файл «{file_name}»")
+    
+    await message.answer(f"⏳ {type_display} получено ({size_str}), обрабатываю...")
 
     try:
-        file_type = get_file_type(file_name)
+        # Determine actual suffix
+        if suffix is None:
+            suffix = Path(file_name).suffix
+        if not suffix:
+            suffix = {
+                "voice": ".ogg",
+                "video_note": ".mp4",
+                "video": ".mp4",
+                "audio": ".mp3",
+            }.get(file_type, "")
+
         input_path, dl_time = await _download_telegram_file(
-            message.bot, message.document.file_id, suffix=Path(file_name).suffix
+            message.bot, media_obj.file_id, suffix=suffix
         )
-        await _process_media(message, input_path, file_name, file_type, file_size, dl_time)
+        actual_file_type = get_file_type(file_name) if file_type == "document" else file_type
+        
+        await _process_media(message, input_path, file_name, actual_file_type, file_size, dl_time)
+        
     except Exception as e:
-        logger.error("FATAL ERROR in handle_document: %s", e, exc_info=True)
+        logger.error("FATAL ERROR in handle_%s: %s", file_type, e, exc_info=True)
         await message.answer("❌ Произошла ошибка при скачивании файла.")
+
+
+# ─── Route Handlers ─────────────────────────────────────────────────
+
+@router.message(F.voice)
+async def handle_voice(message: Message) -> None:
+    """Handle voice messages (audio notes)."""
+    await _handle_media_item(
+        message, message.voice, "voice", "Голосовое сообщение", suffix=".ogg"
+    )
+
+@router.message(F.video_note)
+async def handle_video_note(message: Message) -> None:
+    """Handle video notes (circle videos)."""
+    await _handle_media_item(
+        message, message.video_note, "video_note", "Видеосообщение (кружок)", suffix=".mp4"
+    )
+
+@router.message(F.video)
+async def handle_video(message: Message) -> None:
+    """Handle video files sent as video messages."""
+    await _handle_media_item(
+        message, message.video, "video", "video.mp4"
+    )
+
+@router.message(F.audio)
+async def handle_audio(message: Message) -> None:
+    """Handle audio files (music, podcasts, etc.)."""
+    await _handle_media_item(
+        message, message.audio, "audio", "audio.mp3"
+    )
+
+@router.message(F.document)
+async def handle_document(message: Message) -> None:
+    """Handle uploaded documents — only process supported audio/video formats."""
+    await _handle_media_item(
+        message, message.document, "document", "file", check_format=True
+    )

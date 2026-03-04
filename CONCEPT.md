@@ -242,19 +242,14 @@ VoiceToText/
 │   ├── handlers/
 │   │   ├── start.py         # /start, авторизация
 │   │   ├── admin.py         # команды админа
-│   │   ├── media.py         # обработка медиафайлов
-│   │   └── settings.py      # настройки пользователя
+│   │   └── media.py         # обработка медиафайлов
 │   ├── services/
 │   │   ├── auth.py          # логика авторизации
 │   │   ├── transcriber.py   # STT + диаризация (AssemblyAI)
 │   │   ├── formatter.py     # LLM форматирование (OpenRouter)
 │   │   └── audio.py         # извлечение аудио (FFmpeg)
-│   ├── database/
-│   │   ├── models.py        # модели данных
-│   │   └── db.py            # работа с SQLite
-│   └── utils/
-│       ├── messages.py      # шаблоны сообщений
-│       └── helpers.py       # вспомогательные функции
+│   └── database/
+│       └── db.py            # работа с SQLite
 ├── .env                     # секреты (не в Git!)
 ├── .env.example             # пример конфигурации
 ├── docker-compose.yml
@@ -274,9 +269,11 @@ ASSEMBLYAI_API_KEY=your_assemblyai_api_key
 
 # OpenRouter
 OPENROUTER_API_KEY=your_openrouter_api_key
-OPENROUTER_MODEL=google/gemma-2-9b-it:free
+OPENROUTER_MODELS=google/gemma-3-27b-it:free,qwen/qwen3-32b:free
 
 # Настройки
 MAX_AUDIO_DURATION=7200    # макс. длительность в секундах (2 часа)
 MAX_FILE_SIZE=20971520     # макс. размер файла в байтах (20 МБ)
+ASSEMBLYAI_INITIAL_BALANCE=50.0
+ASSEMBLYAI_RATE_PER_HOUR=0.17
 ```

@@ -52,6 +52,10 @@ class Database:
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
             """)
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_transcriptions_status "
+                "ON transcriptions (status)"
+            )
             await db.commit()
 
     async def add_user(

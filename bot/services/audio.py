@@ -57,6 +57,7 @@ async def extract_audio(input_path: str, output_path: str = None) -> str:
 
     cmd = [
         "ffmpeg",
+        "-loglevel", "error", # suppress warning spam
         "-i", input_path,
         "-vn",              # no video
         "-acodec", "pcm_s16le",  # 16-bit PCM
