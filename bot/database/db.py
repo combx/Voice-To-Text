@@ -190,3 +190,37 @@ class Database:
                 "total_duration": total_duration,
                 "total_duration_formatted": duration_formatted,
             }
+
+    async def get_balance(
+        self,
+        initial_balance: float = 50.0,
+        rate_per_hour: float = 0.17,
+    ) -> dict:
+        """Calculate remaining AssemblyAI balance.
+        
+        Args:
+            initial_balance: Starting balance in USD.
+            rate_per_hour: Cost per hour ($0.15 universal-2 + $0.02 diarization).
+        
+        Returns:
+            Dict with balance info: spent, remaining, hours_used, hours_remaining.
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT COALESCE(SUM(duration_seconds), 0) FROM transcriptions "
+                "WHERE status = 'completed'"
+            ) as c:
+                total_seconds = (await c.fetchone())[0]
+
+        hours_used = total_seconds / 3600
+        spent = hours_used * rate_per_hour
+        remaining = max(0, initial_balance - spent)
+        hours_remaining = remaining / rate_per_hour if rate_per_hour > 0 else 0
+
+        return {
+            "initial_balance": initial_balance,
+            "spent": round(spent, 2),
+            "remaining": round(remaining, 2),
+            "hours_used": round(hours_used, 1),
+            "hours_remaining": round(hours_remaining, 1),
+        }

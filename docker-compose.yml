@@ -3,9 +3,11 @@ services:
     build: .
     container_name: voicetotext-bot
     restart: unless-stopped
+    network_mode: host
     env_file:
       - .env
     volumes:
+      - ./bot:/app/bot
       - ./data:/app/data
     environment:
       - TZ=Europe/Moscow

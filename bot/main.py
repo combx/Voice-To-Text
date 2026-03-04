@@ -10,7 +10,7 @@ from aiogram.enums import ParseMode
 
 from bot.config import load_config
 from bot.database.db import get_db
-from bot.handlers import start, admin
+from bot.handlers import start, admin, media
 
 
 async def main() -> None:
@@ -30,9 +30,15 @@ async def main() -> None:
     await db.init()
     logger.info("Database initialized")
 
+    from aiogram.client.session.aiohttp import AiohttpSession
+
+    # Session with 5-minute timeout for large files
+    session = AiohttpSession(timeout=300)
+
     # Create bot and dispatcher
     bot = Bot(
         token=config.bot.token,
+        session=session,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dp = Dispatcher()
@@ -40,6 +46,7 @@ async def main() -> None:
     # Register routers
     dp.include_router(start.router)
     dp.include_router(admin.router)
+    dp.include_router(media.router)
 
     # Start polling
     logger.info("Bot starting...")

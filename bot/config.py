@@ -22,10 +22,10 @@ class AssemblyAIConfig:
 
 # Default fallback chain of free models
 DEFAULT_MODELS = [
-    "google/gemma-3-12b-it:free",
-    "meta-llama/llama-4-scout:free",
-    "mistralai/mistral-small-3.1-24b-instruct:free",
     "google/gemma-3-27b-it:free",
+    "qwen/qwen3-32b:free",
+    "mistralai/mistral-small-3.1-24b-instruct:free",
+    "google/gemma-3-12b-it:free",
 ]
 
 
@@ -42,6 +42,8 @@ class AppConfig:
     max_audio_duration: int  # seconds
     max_file_size: int       # bytes
     log_level: str
+    assemblyai_initial_balance: float  # USD
+    assemblyai_rate_per_hour: float    # USD per hour
 
 
 @dataclass
@@ -94,5 +96,7 @@ def load_config() -> Config:
             max_audio_duration=int(os.getenv("MAX_AUDIO_DURATION", "7200")),
             max_file_size=int(os.getenv("MAX_FILE_SIZE", "20971520")),
             log_level=os.getenv("LOG_LEVEL", "INFO"),
+            assemblyai_initial_balance=float(os.getenv("ASSEMBLYAI_INITIAL_BALANCE", "50.0")),
+            assemblyai_rate_per_hour=float(os.getenv("ASSEMBLYAI_RATE_PER_HOUR", "0.17")),
         ),
     )
