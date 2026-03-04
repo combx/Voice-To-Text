@@ -1,7 +1,7 @@
 """Bot configuration loaded from environment variables."""
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -20,11 +20,20 @@ class AssemblyAIConfig:
     api_key: str
 
 
+# Default fallback chain of free models
+DEFAULT_MODELS = [
+    "google/gemma-3-12b-it:free",
+    "meta-llama/llama-4-scout:free",
+    "mistralai/mistral-small-3.1-24b-instruct:free",
+    "google/gemma-3-27b-it:free",
+]
+
+
 @dataclass
 class OpenRouterConfig:
     """OpenRouter API settings."""
     api_key: str
-    model: str
+    models: list[str] = field(default_factory=lambda: DEFAULT_MODELS.copy())
 
 
 @dataclass
@@ -42,6 +51,14 @@ class Config:
     assemblyai: AssemblyAIConfig
     openrouter: OpenRouterConfig
     app: AppConfig
+
+
+def _parse_models(models_str: str) -> list[str]:
+    """Parse comma-separated model names, fall back to defaults if empty."""
+    if not models_str.strip():
+        return DEFAULT_MODELS.copy()
+    models = [m.strip() for m in models_str.split(",") if m.strip()]
+    return models if models else DEFAULT_MODELS.copy()
 
 
 def load_config() -> Config:
@@ -71,7 +88,7 @@ def load_config() -> Config:
         ),
         openrouter=OpenRouterConfig(
             api_key=openrouter_key,
-            model=os.getenv("OPENROUTER_MODEL", "google/gemma-2-9b-it:free"),
+            models=_parse_models(os.getenv("OPENROUTER_MODELS", "")),
         ),
         app=AppConfig(
             max_audio_duration=int(os.getenv("MAX_AUDIO_DURATION", "7200")),
