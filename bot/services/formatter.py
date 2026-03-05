@@ -28,16 +28,15 @@ SYSTEM_PROMPT = """Ты — профессиональный редактор-ф
 5. РАЗРЕШЕНО только:
    - Расставить знаки препинания (запятые, точки, вопросительные и восклицательные знаки, тире, двоеточия)
    - Расставить заглавные буквы в начале предложений и для имён собственных
-   - Разбить длинные реплики одного спикера на абзацы по смыслу
+   - Разбить длинные реплики одного спикера на НЕБОЛЬШИЕ АБЗАЦЫ (по 2-3 предложения) для удобства чтения. Никаких огромных сплошных блоков текста!
 
 ФОРМАТ ОТВЕТА:
-Сначала выведи отформатированный текст с СОХРАНЕНИЕМ всех меток спикеров и временных меток.
-Затем добавь пустую строку и напиши:
-
-📌 Краткое содержание:
-[2-4 предложения, кратко описывающих основные темы и ключевые моменты разговора]"""
+Строго следуй переданной инструкции о том, куда поместить "Краткое содержание" (в начало или в конец текста).
+Сам текст должен сохранять все метки спикеров и временные метки."""
 
 USER_PROMPT_TEMPLATE = """Отформатируй эту расшифровку. Язык аудио: {language}.
+
+{summary_instruction}
 
 ТЕКСТ:
 {text}"""
@@ -51,7 +50,7 @@ class FormattedResult:
     error: str = ""
 
 
-def _sync_call_openrouter(api_key: str, model: str, text: str, language: str) -> str:
+def _sync_call_openrouter(api_key: str, model: str, text: str, language: str, duration_seconds: float) -> str:
     """Call OpenRouter API synchronously (run in thread).
     
     Returns the formatted text from the LLM.
@@ -63,8 +62,21 @@ def _sync_call_openrouter(api_key: str, model: str, text: str, language: str) ->
         "x-title": "VoiceToText Bot",
     }
 
+    if duration_seconds > 40:
+        summary_instruction = (
+            "Так как аудио длинное, СНАЧАЛА напиши Краткое содержание (2-4 предложения "
+            "с заголовком '📌 Краткое содержание:'), затем пустую строку, "
+            "а ПОТОМ отформатированный текст."
+        )
+    else:
+        summary_instruction = (
+            "СНАЧАЛА выведи отформатированный текст, а В КОНЦЕ текста добавь пустую строку "
+            "и напиши Краткое содержание (2-4 предложения с заголовком '📌 Краткое содержание:')."
+        )
+
     user_prompt = USER_PROMPT_TEMPLATE.format(
         language=language or "не определён",
+        summary_instruction=summary_instruction,
         text=text,
     )
 
@@ -186,7 +198,7 @@ async def _get_models() -> list[str]:
     return merged
 
 
-async def format_with_llm(text: str, language: str = "") -> FormattedResult:
+async def format_with_llm(text: str, language: str = "", duration_seconds: float = 0.0) -> FormattedResult:
     """Format transcription text using OpenRouter LLM.
 
     Tries each model in the fallback chain until one succeeds.
@@ -196,6 +208,7 @@ async def format_with_llm(text: str, language: str = "") -> FormattedResult:
     Args:
         text: Raw transcription text.
         language: Detected language code (e.g. "ru", "en").
+        duration_seconds: Audio duration to dynamically place summary.
 
     Returns:
         FormattedResult with formatted text and model info.
@@ -220,7 +233,7 @@ async def format_with_llm(text: str, language: str = "") -> FormattedResult:
         try:
             logger.info("Trying LLM model: %s", model)
             formatted = await asyncio.to_thread(
-                _sync_call_openrouter, api_key, model, text, language
+                _sync_call_openrouter, api_key, model, text, language, duration_seconds
             )
             return FormattedResult(formatted_text=formatted, model_used=model)
         except Exception as e:

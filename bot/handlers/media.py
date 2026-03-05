@@ -203,7 +203,7 @@ async def _process_media(message: Message, input_path: str, file_name: str, file
             heartbeat_counter[0] = 0
             heartbeat_task = asyncio.create_task(_heartbeat("Форматирую"))
             try:
-                llm_result = await format_with_llm(text_for_llm, result.language)
+                llm_result = await format_with_llm(text_for_llm, result.language, duration)
             finally:
                 heartbeat_active = False
                 heartbeat_task.cancel()
