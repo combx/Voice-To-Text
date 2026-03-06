@@ -34,6 +34,13 @@ def _sync_extract_subtitles(url: str, temp_dir: str) -> dict:
         'no_warnings': True,
     }
     
+    # Allow passing cookies to bypass YouTube bot protection (datacenter IP block)
+    # The file should be named 'cookies.txt' and placed in the project root
+    cookies_file = Path("cookies.txt")
+    if cookies_file.exists():
+        ydl_opts['cookiefile'] = str(cookies_file)
+        logger.info("Using cookies file for YouTube extraction: %s", cookies_file.absolute())
+    
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
         
