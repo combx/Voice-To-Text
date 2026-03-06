@@ -20,6 +20,31 @@ SPEAKER_COLORS = ["🔵", "🟢", "🔴", "🟡", "🟣", "🟤", "⚪", "🟠"]
 
 ASSEMBLYAI_BASE = "https://api.assemblyai.com/v2"
 
+# Localization strings for different UI languages
+LOCALIZATIONS = {
+    "ru": {
+        "title": "📝 Расшифровка аудио",
+        "file": "📁 Файл",
+        "duration": "⏱ Длительность",
+        "speakers": "🗣 Спикеров",
+        "language": "🌐 Язык",
+        "model": "🤖 Формат",
+        "speaker_label": "Спикер",
+        "summary_title": "📌 Краткое содержание",
+    },
+    "en": {
+        "title": "📝 Transcription",
+        "file": "📁 File",
+        "duration": "⏱ Duration",
+        "speakers": "🗣 Speakers",
+        "language": "🌐 Language",
+        "model": "🤖 Model",
+        "speaker_label": "Speaker",
+        "summary_title": "📌 Summary",
+    },
+    # Add more as needed, default is English
+}
+
 
 @dataclass
 class Utterance:
@@ -219,19 +244,23 @@ def format_transcription(
     
     If llm_text is provided, uses LLM-formatted text instead of raw utterances.
     """
+    lang_code = result.language or "en"
+    # Fallback to English if not in LOCALIZATIONS
+    loc = LOCALIZATIONS.get(lang_code, LOCALIZATIONS["en"]) if lang_code in LOCALIZATIONS else LOCALIZATIONS["en"]
+    
     lang_name = _get_language_name(result.language)
     
     header_lines = [
-        "📝 Расшифровка аудио",
+        loc["title"],
         "━━━━━━━━━━━━━━━━━━",
-        f"📁 Файл: {file_name}",
-        f"⏱ Длительность: {duration_str}",
-        f"🗣 Спикеров: {result.speakers_count}",
-        f"🌐 Язык: {lang_name}",
+        f"{loc['file']}: {file_name}",
+        f"{loc['duration']}: {duration_str}",
+        f"{loc['speakers']}: {result.speakers_count}",
+        f"{loc['language']}: {lang_name}",
     ]
     if llm_model and llm_model != "none":
         model_short = llm_model.split("/")[-1].split(":")[0]
-        header_lines.append(f"🤖 Формат: {model_short}")
+        header_lines.append(f"{loc['model']}: {model_short}")
     header_lines.append("━━━━━━━━━━━━━━━━━━\n")
     header = "\n".join(header_lines) + "\n"
 
@@ -245,7 +274,7 @@ def format_transcription(
             emoji = _speaker_emoji(u.speaker, speaker_map)
             ts = _format_timestamp(u.start_ms)
             speaker_num = list(speaker_map.keys()).index(u.speaker) + 1
-            body_parts.append(f"{emoji} Спикер {speaker_num} [{ts}]\n{u.text}\n")
+            body_parts.append(f"{emoji} {loc['speaker_label']} {speaker_num} [{ts}]\n{u.text}\n")
         body = "\n".join(body_parts)
     else:
         body = result.text + "\n"

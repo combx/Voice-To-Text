@@ -21,14 +21,15 @@ OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 SYSTEM_PROMPT = """Ты — профессиональный редактор-форматировщик расшифровок аудиозаписей.
 
 СТРОГИЕ ПРАВИЛА:
-1. НЕ УДАЛЯЙ ни одного слова из текста. Каждое слово должно остаться на месте.
+1. НЕ УДАЛЯЙ ни одного слова из оригинального текста (если не запрошен перевод). Каждое слово должно остаться на месте.
 2. НЕ ЗАМЕНЯЙ слова на синонимы. НЕ перефразируй.
 3. НЕ ДОБАВЛЯЙ новых слов (кроме знаков препинания).
-4. СОХРАНЯЙ все метки спикеров (🔵 Спикер 1, 🟢 Спикер 2 и т.д.) и временные метки [MM:SS] в точности как в оригинале.
+4. СОХРАНЯЙ все метки спикеров (🔵 Спикер 1 / 🔵 Speaker 1, 🟢 Спикер 2 / 🟢 Speaker 2 и т.д.) и временные метки [MM:SS] в точности как в оригинале.
 5. РАЗРЕШЕНО только:
    - Расставить знаки препинания (запятые, точки, вопросительные и восклицательные знаки, тире, двоеточия)
    - Расставить заглавные буквы в начале предложений и для имён собственных
    - Разбить длинные реплики одного спикера на НЕБОЛЬШИЕ АБЗАЦЫ (по 2-3 предложения) для удобства чтения. Никаких огромных сплошных блоков текста!
+6. ПИШИ ВЕСЬ ТЕКСТ (включая заголовок 'Краткое содержание' и само содержание) НА ТОМ ЖЕ ЯЗЫКЕ, ЧТО И ОРИГИНАЛЬНАЯ РАСШИФРОВКА (если не запрошен перевод).
 
 ФОРМАТ ОТВЕТА:
 Строго следуй переданной инструкции о том, куда поместить "Краткое содержание" (в начало или в конец текста).
@@ -50,28 +51,41 @@ class FormattedResult:
     error: str = ""
 
 
-def _sync_call_openrouter(api_key: str, model: str, text: str, language: str, duration_seconds: float) -> str:
+def _sync_call_openrouter(
+    api_key: str, 
+    model: str, 
+    text: str, 
+    language: str, 
+    duration_seconds: float,
+    target_language: str | None = None
+) -> str:
     """Call OpenRouter API synchronously (run in thread).
     
     Returns the formatted text from the LLM.
     Raises RuntimeError on failure.
     """
-    headers = {
-        "authorization": f"Bearer {api_key}",
-        "content-type": "application/json",
-        "x-title": "VoiceToText Bot",
-    }
+    from bot.services.transcriber import LOCALIZATIONS
+    loc = LOCALIZATIONS.get(language, LOCALIZATIONS["en"]) if language in LOCALIZATIONS else LOCALIZATIONS["en"]
+    summary_title = loc["summary_title"]
 
-    if duration_seconds > 40:
+    if target_language == "ru":
+        # Translation mode
         summary_instruction = (
-            "Так как аудио длинное, СНАЧАЛА напиши Краткое содержание (2-4 предложения "
-            "с заголовком '📌 Краткое содержание:'), затем пустую строку, "
-            "а ПОТОМ отформатированный текст."
+            "ЗАДАЧА: Переведи весь текст выше на РУССКИЙ ЯЗЫК. Сохрани все метки спикеров и таймкоды. "
+            "СНАЧАЛА напиши Краткое содержание на русском (заголовок '📌 Краткое содержание:'), "
+            "затем пустую строку, а ПОТОМ переведенный текст расшифровки."
+        )
+    elif duration_seconds > 40:
+        summary_instruction = (
+            f"Так как аудио длинное, СНАЧАЛА напиши Краткое содержание (2-4 предложения "
+            f"с заголовком '{summary_title}:'), затем пустую строку, "
+            f"а ПОТОМ отформатированный текст. ПИШИ ВСЁ НА ЯЗЫКЕ ОРИГИНАЛА ({language})."
         )
     else:
         summary_instruction = (
-            "СНАЧАЛА выведи отформатированный текст, а В КОНЦЕ текста добавь пустую строку "
-            "и напиши Краткое содержание (2-4 предложения с заголовком '📌 Краткое содержание:')."
+            f"СНАЧАЛА выведи отформатированный текст, а В КОНЦЕ текста добавь пустую строку "
+            f"и напиши Краткое содержание (2-4 предложения с заголовком '{summary_title}:'). "
+            f"ПИШИ ВСЁ НА ЯЗЫКЕ ОРИГИНАЛА ({language})."
         )
 
     user_prompt = USER_PROMPT_TEMPLATE.format(
@@ -198,7 +212,12 @@ async def _get_models() -> list[str]:
     return merged
 
 
-async def format_with_llm(text: str, language: str = "", duration_seconds: float = 0.0) -> FormattedResult:
+async def format_with_llm(
+    text: str, 
+    language: str = "", 
+    duration_seconds: float = 0.0,
+    target_language: str | None = None
+) -> FormattedResult:
     """Format transcription text using OpenRouter LLM.
 
     Tries each model in the fallback chain until one succeeds.
@@ -209,6 +228,7 @@ async def format_with_llm(text: str, language: str = "", duration_seconds: float
         text: Raw transcription text.
         language: Detected language code (e.g. "ru", "en").
         duration_seconds: Audio duration to dynamically place summary.
+        target_language: If set to "ru", performs translation to Russian.
 
     Returns:
         FormattedResult with formatted text and model info.
@@ -233,7 +253,7 @@ async def format_with_llm(text: str, language: str = "", duration_seconds: float
         try:
             logger.info("Trying LLM model: %s", model)
             formatted = await asyncio.to_thread(
-                _sync_call_openrouter, api_key, model, text, language, duration_seconds
+                _sync_call_openrouter, api_key, model, text, language, duration_seconds, target_language
             )
             return FormattedResult(formatted_text=formatted, model_used=model)
         except Exception as e:

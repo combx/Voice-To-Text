@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 
 from aiogram import Router, F, Bot
-from aiogram.types import Message
+from aiogram.types import Message, FSInputFile, CallbackQuery
 
 from bot.services.auth import is_user_authorized
 from bot.services.audio import (
@@ -20,6 +20,8 @@ from bot.services.audio import (
 )
 from bot.config import load_config
 from bot.database.db import get_db
+from bot.services.formatter import format_with_llm
+from bot.services.transcriber import transcribe_audio, format_transcription, split_message, LOCALIZATIONS
 
 logger = logging.getLogger(__name__)
 
@@ -158,9 +160,6 @@ async def _process_media(message: Message, input_path: str, file_name: str, file
                     pass
 
         # Transcribe via AssemblyAI (with heartbeat)
-        from bot.services.transcriber import transcribe_audio, format_transcription, split_message
-        from bot.services.formatter import format_with_llm
-
         heartbeat_task = asyncio.create_task(_heartbeat("Распознаю речь"))
         try:
             result = await transcribe_audio(wav_path)
@@ -214,10 +213,21 @@ async def _process_media(message: Message, input_path: str, file_name: str, file
             llm_text=llm_result.formatted_text if llm_result and not llm_result.error else None,
             llm_model=llm_result.model_used if llm_result and not llm_result.error else None,
         )
-        parts = split_message(formatted)
-
-        for part in parts:
-            await message.answer(part)
+        for i, part in enumerate(parts):
+            # Only add the translation button to the LAST part of the message
+            # and only if the language is NOT Russian
+            reply_markup = None
+            if i == len(parts) - 1 and result.language != "ru":
+                from aiogram.utils.keyboard import InlineKeyboardBuilder
+                from aiogram.types import InlineKeyboardButton
+                builder = InlineKeyboardBuilder()
+                builder.row(InlineKeyboardButton(
+                    text="🇷🇺 Перевести на русский",
+                    callback_data=f"translate_{transcription_id}"
+                ))
+                reply_markup = builder.as_markup()
+            
+            await message.answer(part, reply_markup=reply_markup)
 
         # Export to .txt for long transcriptions
         if len(formatted) > 4000:
@@ -369,3 +379,53 @@ async def handle_document(message: Message) -> None:
     await _handle_media_item(
         message, message.document, "document", "file", check_format=True
     )
+
+
+# ─── Translation Callback Handler ───────────────────────────────────
+
+@router.callback_query(F.data.startswith("translate_"))
+async def handle_translate_callback(callback: CallbackQuery) -> None:
+    """Handle 'Translate to Russian' button click."""
+    transcription_id = int(callback.data.split("_")[1])
+    
+    # Send temporary status
+    await callback.answer("⏳ Перевожу на русский...")
+    status_msg = await callback.message.answer("✨ Перевожу текст на русский...")
+    
+    try:
+        # Get transcription text from original message
+        # In a real app, we might want to fetch from DB, but for now we extract from message
+        original_text = callback.message.text
+        
+        # Strip header from message to get just the dialogue
+        if "━━━━━━━━━━━━━━━━━━" in original_text:
+            dialogue_text = original_text.split("━━━━━━━━━━━━━━━━━━")[-1].strip()
+        else:
+            dialogue_text = original_text
+
+        # Call LLM with translation mode
+        # We don't have the original 'result' object here, but we can pass dummy values
+        # as the 'translate' mode in formatter.py is robust.
+        # Ideally we'd store the raw transcription in DB, but for now this works.
+        llm_result = await format_with_llm(dialogue_text, target_language="ru")
+        
+        if llm_result.error:
+            await status_msg.edit_text(f"❌ Ошибка перевода: {llm_result.error}")
+            return
+
+        # Prepare translation result
+        translated_header = (
+            "🇷🇺 **Перевод на русский**\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+        )
+        full_translated = translated_header + llm_result.formatted_text
+        
+        parts = split_message(full_translated)
+        
+        await status_msg.delete()
+        for part in parts:
+            await callback.message.answer(part)
+            
+    except Exception as e:
+        logger.exception("Translation failed: %s", e)
+        await status_msg.edit_text("❌ Извините, не удалось выполнить перевод.")
