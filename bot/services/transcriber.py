@@ -75,16 +75,27 @@ def _sync_upload_file(api_key: str, wav_path: str) -> str:
     with open(wav_path, "rb") as f:
         file_data = f.read()
 
-    # httpx supports separate write/read/connect/pool timeouts
     timeout = httpx.Timeout(timeout=300.0, connect=30.0, read=300.0, write=300.0)
 
     t0 = time.monotonic()
-    with httpx.Client(timeout=timeout, http2=True) as client:
-        resp = client.post(
-            f"{ASSEMBLYAI_BASE}/upload",
-            headers=headers,
-            content=file_data,
-        )
+    
+    max_retries = 3
+    resp = None
+    for attempt in range(max_retries):
+        try:
+            with httpx.Client(timeout=timeout, http2=True) as client:
+                resp = client.post(
+                    f"{ASSEMBLYAI_BASE}/upload",
+                    headers=headers,
+                    content=file_data,
+                )
+            break
+        except httpx.RequestError as e:
+            if attempt == max_retries - 1:
+                raise RuntimeError(f"Сетевая ошибка при загрузке аудио в AssemblyAI после {max_retries} попыток: {e}") from e
+            logger.warning("Upload attempt %d failed: %s. Retrying in 2 seconds...", attempt + 1, e)
+            import time as _time
+            _time.sleep(2)
 
     elapsed = time.monotonic() - t0
 
