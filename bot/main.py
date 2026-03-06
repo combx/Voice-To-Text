@@ -48,11 +48,10 @@ async def main() -> None:
     dp = Dispatcher()
 
     # Register routers
-    from bot.handlers import start, admin, media, youtube
+    from bot.handlers import start, admin, media
     dp.include_router(start.router)
     dp.include_router(admin.router)
     dp.include_router(media.router)
-    dp.include_router(youtube.router)
 
     # Start polling
     logger.info("Bot starting...")

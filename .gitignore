@@ -49,6 +49,3 @@ docker-compose.override.yml
 
 # Logs
 *.log
-
-# Credentials
-cookies.txt
