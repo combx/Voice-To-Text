@@ -68,6 +68,12 @@ def _sync_call_openrouter(
     loc = LOCALIZATIONS.get(language, LOCALIZATIONS["en"]) if language in LOCALIZATIONS else LOCALIZATIONS["en"]
     summary_title = loc["summary_title"]
 
+    headers = {
+        "authorization": f"Bearer {api_key}",
+        "content-type": "application/json",
+        "x-title": "VoiceToText Bot",
+    }
+
     if target_language == "ru":
         # Translation mode
         summary_instruction = (

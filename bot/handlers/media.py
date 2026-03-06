@@ -213,6 +213,7 @@ async def _process_media(message: Message, input_path: str, file_name: str, file
             llm_text=llm_result.formatted_text if llm_result and not llm_result.error else None,
             llm_model=llm_result.model_used if llm_result and not llm_result.error else None,
         )
+        parts = split_message(formatted)
         for i, part in enumerate(parts):
             # Only add the translation button to the LAST part of the message
             # and only if the language is NOT Russian
