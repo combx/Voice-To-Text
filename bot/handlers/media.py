@@ -176,16 +176,21 @@ async def _process_media(message: Message, input_path: str, file_name: str, file
 
         # LLM formatting (if OpenRouter key is configured)
         # Build speaker-labeled text for LLM (with emojis and timestamps)
-        from bot.services.transcriber import _speaker_emoji, _format_timestamp
+        from bot.services.transcriber import _speaker_emoji, _format_timestamp, LOCALIZATIONS
         
         if result.utterances:
             speaker_map = {}
             text_parts = []
+            
+            lang_code = result.language or "en"
+            loc = LOCALIZATIONS.get(lang_code, LOCALIZATIONS["en"]) if lang_code in LOCALIZATIONS else LOCALIZATIONS["en"]
+            speaker_label = loc["speaker_label"]
+
             for u in result.utterances:
                 emoji = _speaker_emoji(u.speaker, speaker_map)
                 ts = _format_timestamp(u.start_ms)
                 speaker_num = list(speaker_map.keys()).index(u.speaker) + 1
-                text_parts.append(f"{emoji} Спикер {speaker_num} [{ts}]\n{u.text}")
+                text_parts.append(f"{emoji} {speaker_label} {speaker_num} [{ts}]\n{u.text}")
             text_for_llm = "\n\n".join(text_parts)
         else:
             text_for_llm = result.text

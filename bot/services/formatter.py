@@ -142,11 +142,22 @@ def _sync_call_openrouter(
     
     # Validate: since LLM must add punctuation AND a summary, the result 
     # must be longer than or equal to the input text. If shorter, it truncated.
-    if len(result) < len(text):
-        raise RuntimeError(
-            f"LLM truncated text: {len(text)} -> {len(result)} chars. "
-            f"Result must be >= original length."
-        )
+    # Validate length to prevent truncation bugs. 
+    # For verbatim formatting, it should be >= original length (due to added summary & punctuation).
+    # For translations, it can naturally be shorter, so we use a relaxed 50% threshold.
+    if target_language:
+        if len(result) < len(text) * 0.5:
+            raise RuntimeError(
+                f"LLM translation too short: {len(text)} -> {len(result)} chars. "
+                "Output must be at least 50% of original length."
+            )
+    else:
+        # Strict verbatim check
+        if len(result) < len(text):
+            raise RuntimeError(
+                f"LLM truncated text: {len(text)} -> {len(result)} chars. "
+                f"Result must be >= original length."
+            )
     
     logger.info("LLM formatting done with %s in %.1fs (%d -> %d chars)",
                 model, elapsed, len(text), len(result))
