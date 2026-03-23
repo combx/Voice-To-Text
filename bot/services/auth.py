@@ -6,12 +6,13 @@ from bot.config import load_config
 from bot.database.db import get_db
 
 
-async def is_user_authorized(message: Message) -> bool:
+async def is_user_authorized(message: Message, config=None) -> bool:
     """Check if the user is authorized to use the bot.
 
     Returns True for admin and approved users.
     """
-    config = load_config()
+    if config is None:
+        config = load_config()
 
     # Admin is always authorized
     if message.from_user.id == config.bot.admin_id:

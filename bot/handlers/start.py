@@ -3,17 +3,17 @@
 from aiogram import Router, F
 from aiogram.filters import CommandStart
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from bot.config import load_config
 
 router = Router(name="start")
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message) -> None:
+async def cmd_start(message: Message, **kwargs) -> None:
     """Handle /start command — show greeting and access request button."""
     from bot.database.db import get_db
-    from bot.config import load_config
-
-    config = load_config()
+    
+    config = kwargs.get("config") or load_config()
     db = get_db()
     user = await db.get_user(message.from_user.id)
 
@@ -72,26 +72,31 @@ async def cmd_start(message: Message) -> None:
 
 
 @router.callback_query(F.data == "request_access")
-async def on_request_access(callback: CallbackQuery) -> None:
+async def on_request_access(callback: CallbackQuery, **kwargs) -> None:
     """Handle access request button press."""
     from bot.database.db import get_db
-    from bot.config import load_config
 
-    config = load_config()
+    config = kwargs.get("config") or load_config()
     db = get_db()
     user = await db.get_user(callback.from_user.id)
 
     if user:
-        await callback.answer("Вы уже отправляли запрос.", show_alert=True)
-        return
-
-    # Save user with pending status
-    await db.add_user(
-        user_id=callback.from_user.id,
-        username=callback.from_user.username,
-        full_name=callback.from_user.full_name,
-        status="pending",
-    )
+        if user["status"] == "pending":
+            await callback.answer("⏳ Вы уже отправили запрос. Ожидайте одобрения.", show_alert=True)
+            return
+        elif user["status"] == "approved":
+            await callback.answer("✅ У вас уже есть доступ.", show_alert=True)
+            return
+        # status == "rejected" — allow re-request
+        await db.update_user_status(callback.from_user.id, "pending")
+    else:
+        # New user — add to database
+        await db.add_user(
+            user_id=callback.from_user.id,
+            username=callback.from_user.username,
+            full_name=callback.from_user.full_name,
+            status="pending",
+        )
 
     # Notify admin
     admin_keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -127,12 +132,11 @@ async def on_request_access(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("approve_"))
-async def on_approve_user(callback: CallbackQuery) -> None:
+async def on_approve_user(callback: CallbackQuery, **kwargs) -> None:
     """Admin approves user access."""
     from bot.database.db import get_db
-    from bot.config import load_config
 
-    config = load_config()
+    config = kwargs.get("config") or load_config()
     if callback.from_user.id != config.bot.admin_id:
         await callback.answer("Только админ может это делать.", show_alert=True)
         return
@@ -163,12 +167,11 @@ async def on_approve_user(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("reject_"))
-async def on_reject_user(callback: CallbackQuery) -> None:
+async def on_reject_user(callback: CallbackQuery, **kwargs) -> None:
     """Admin rejects user access."""
     from bot.database.db import get_db
-    from bot.config import load_config
 
-    config = load_config()
+    config = kwargs.get("config") or load_config()
     if callback.from_user.id != config.bot.admin_id:
         await callback.answer("Только админ может это делать.", show_alert=True)
         return

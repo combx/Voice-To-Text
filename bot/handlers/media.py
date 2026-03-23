@@ -1,8 +1,6 @@
 """Media file handlers — voice messages, video notes, and uploaded files."""
 
 import logging
-import os
-import tempfile
 from pathlib import Path
 
 from aiogram import Router, F, Bot
@@ -14,9 +12,9 @@ from bot.services.audio import (
     get_audio_duration,
     format_duration,
     is_supported_format,
-    get_file_type,
     cleanup_temp_file,
     TEMP_DIR,
+    ALL_MEDIA_EXTENSIONS,
 )
 from bot.config import load_config
 from bot.database.db import get_db
@@ -27,7 +25,6 @@ logger = logging.getLogger(__name__)
 
 router = Router(name="media")
 
-import aiohttp
 import asyncio
 import time
 
@@ -67,13 +64,12 @@ def format_file_size(size_bytes: int) -> str:
         return f"{size_bytes / (1024 * 1024):.1f} МБ"
 
 
-async def _process_media(message: Message, input_path: str, file_name: str, file_type: str, file_size_bytes: int = 0, download_time: float = 0) -> None:
+async def _process_media(message: Message, input_path: str, file_name: str, file_type: str, file_size_bytes: int = 0, download_time: float = 0, **kwargs) -> None:
     """Common processing pipeline for all media types.
 
     Downloads → extracts audio → saves metadata → sends status updates.
-    Currently stops after audio extraction (AssemblyAI integration in Этап 3).
     """
-    config = load_config()
+    config = kwargs.get("config") if kwargs else load_config()
     db = get_db()
     wav_path = None
 
@@ -195,6 +191,10 @@ async def _process_media(message: Message, input_path: str, file_name: str, file
         else:
             text_for_llm = result.text
 
+        # Save raw text to DB for translation later
+        if text_for_llm:
+            await db.save_raw_text(transcription_id, text_for_llm)
+
         llm_result = None
         if text_for_llm and len(text_for_llm.strip()) > 10:
             await message.answer(
@@ -288,19 +288,20 @@ async def _handle_media_item(
     media_obj,
     file_type: str,
     default_name: str,
+    kwargs: dict,
     suffix: str | None = None,
     check_format: bool = False
 ) -> None:
     """Generic handler for validating, downloading, and processing media."""
-    if not await is_user_authorized(message):
+    config = kwargs.get("config") or load_config()
+    if not await is_user_authorized(message, config):
         return
 
     file_name = getattr(media_obj, "file_name", None) or default_name
 
     if check_format and not is_supported_format(file_name):
         supported = ", ".join(sorted(
-            ext.lstrip(".").upper()
-            for ext in sorted(list({".mp3", ".wav", ".ogg", ".flac", ".m4a", ".mp4", ".avi", ".mkv", ".mov", ".webm"}))
+            ext.lstrip(".").upper() for ext in ALL_MEDIA_EXTENSIONS
         ))
         await message.answer(
             f"❌ Формат файла не поддерживается.\n\n"
@@ -308,7 +309,6 @@ async def _handle_media_item(
         )
         return
 
-    config = load_config()
     file_size = getattr(media_obj, "file_size", 0) or 0
     if file_size > config.app.max_file_size:
         max_mb = config.app.max_file_size / (1024 * 1024)
@@ -342,7 +342,7 @@ async def _handle_media_item(
         )
         actual_file_type = get_file_type(file_name) if file_type == "document" else file_type
         
-        await _process_media(message, input_path, file_name, actual_file_type, file_size, dl_time)
+        await _process_media(message, input_path, file_name, actual_file_type, file_size, dl_time, **kwargs)
         
     except Exception as e:
         logger.error("FATAL ERROR in handle_%s: %s", file_type, e, exc_info=True)
@@ -352,38 +352,38 @@ async def _handle_media_item(
 # ─── Route Handlers ─────────────────────────────────────────────────
 
 @router.message(F.voice)
-async def handle_voice(message: Message) -> None:
+async def handle_voice(message: Message, **kwargs) -> None:
     """Handle voice messages (audio notes)."""
     await _handle_media_item(
-        message, message.voice, "voice", "Голосовое сообщение", suffix=".ogg"
+        message, message.voice, "voice", "Голосовое сообщение", kwargs, suffix=".ogg"
     )
 
 @router.message(F.video_note)
-async def handle_video_note(message: Message) -> None:
+async def handle_video_note(message: Message, **kwargs) -> None:
     """Handle video notes (circle videos)."""
     await _handle_media_item(
-        message, message.video_note, "video_note", "Видеосообщение (кружок)", suffix=".mp4"
+        message, message.video_note, "video_note", "Видеосообщение (кружок)", kwargs, suffix=".mp4"
     )
 
 @router.message(F.video)
-async def handle_video(message: Message) -> None:
+async def handle_video(message: Message, **kwargs) -> None:
     """Handle video files sent as video messages."""
     await _handle_media_item(
-        message, message.video, "video", "video.mp4"
+        message, message.video, "video", "video.mp4", kwargs
     )
 
 @router.message(F.audio)
-async def handle_audio(message: Message) -> None:
+async def handle_audio(message: Message, **kwargs) -> None:
     """Handle audio files (music, podcasts, etc.)."""
     await _handle_media_item(
-        message, message.audio, "audio", "audio.mp3"
+        message, message.audio, "audio", "audio.mp3", kwargs
     )
 
 @router.message(F.document)
-async def handle_document(message: Message) -> None:
+async def handle_document(message: Message, **kwargs) -> None:
     """Handle uploaded documents — only process supported audio/video formats."""
     await _handle_media_item(
-        message, message.document, "document", "file", check_format=True
+        message, message.document, "document", "file", kwargs, check_format=True
     )
 
 
@@ -399,20 +399,15 @@ async def handle_translate_callback(callback: CallbackQuery) -> None:
     status_msg = await callback.message.answer("✨ Перевожу текст на русский...")
     
     try:
-        # Get transcription text from original message
-        # In a real app, we might want to fetch from DB, but for now we extract from message
-        original_text = callback.message.text
+        # Get raw text from DB
+        db = get_db()
+        dialogue_text = await db.get_raw_text(transcription_id)
         
-        # Strip header from message to get just the dialogue
-        if "━━━━━━━━━━━━━━━━━━" in original_text:
-            dialogue_text = original_text.split("━━━━━━━━━━━━━━━━━━")[-1].strip()
-        else:
-            dialogue_text = original_text
+        if not dialogue_text:
+            await status_msg.edit_text("❌ Ошибка: Оригинальный текст транскрипции не найден в базе данных.")
+            return
 
         # Call LLM with translation mode
-        # We don't have the original 'result' object here, but we can pass dummy values
-        # as the 'translate' mode in formatter.py is robust.
-        # Ideally we'd store the raw transcription in DB, but for now this works.
         llm_result = await format_with_llm(dialogue_text, target_language="ru")
         
         if llm_result.error:

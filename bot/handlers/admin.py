@@ -1,28 +1,23 @@
 """Admin command handlers."""
 
 from aiogram import Router
-from aiogram.filters import Command
+from aiogram.filters import Command, BaseFilter
 from aiogram.types import Message
+from bot.config import load_config
+
+class IsAdminFilter(BaseFilter):
+    async def __call__(self, message: Message, **kwargs) -> bool:
+        config = kwargs.get("config") or load_config()
+        return message.from_user.id == config.bot.admin_id
 
 router = Router(name="admin")
-
-
-def _admin_only(config):
-    """Check if user is admin."""
-    def check(message: Message) -> bool:
-        return message.from_user.id == config.bot.admin_id
-    return check
+router.message.filter(IsAdminFilter())
 
 
 @router.message(Command("users"))
 async def cmd_users(message: Message) -> None:
     """Show list of all users."""
     from bot.database.db import get_db
-    from bot.config import load_config
-
-    config = load_config()
-    if message.from_user.id != config.bot.admin_id:
-        return
 
     db = get_db()
     users = await db.get_all_users()
@@ -54,11 +49,6 @@ async def cmd_users(message: Message) -> None:
 async def cmd_approve(message: Message) -> None:
     """Approve user by ID: /approve <user_id>."""
     from bot.database.db import get_db
-    from bot.config import load_config
-
-    config = load_config()
-    if message.from_user.id != config.bot.admin_id:
-        return
 
     parts = message.text.split()
     if len(parts) != 2:
@@ -93,11 +83,6 @@ async def cmd_approve(message: Message) -> None:
 async def cmd_revoke(message: Message) -> None:
     """Revoke user access: /revoke <user_id>."""
     from bot.database.db import get_db
-    from bot.config import load_config
-
-    config = load_config()
-    if message.from_user.id != config.bot.admin_id:
-        return
 
     parts = message.text.split()
     if len(parts) != 2:
@@ -124,11 +109,6 @@ async def cmd_revoke(message: Message) -> None:
 async def cmd_stats(message: Message) -> None:
     """Show bot usage statistics."""
     from bot.database.db import get_db
-    from bot.config import load_config
-
-    config = load_config()
-    if message.from_user.id != config.bot.admin_id:
-        return
 
     db = get_db()
     stats = await db.get_stats()

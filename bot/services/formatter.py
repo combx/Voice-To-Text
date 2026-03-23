@@ -113,7 +113,8 @@ def _sync_call_openrouter(
         "max_tokens": 16000,
     }
 
-    timeout = httpx.Timeout(timeout=300.0, connect=15.0, read=300.0, write=30.0)
+    # Уменьшенный таймаут для одной модели (было 300)
+    timeout = httpx.Timeout(timeout=60.0, connect=15.0, read=60.0, write=30.0)
 
     t0 = time.monotonic()
     with httpx.Client(timeout=timeout, http2=True) as client:
@@ -229,42 +230,15 @@ async def _get_models() -> list[str]:
     return merged
 
 
-async def format_with_llm(
-    text: str, 
-    language: str = "", 
-    duration_seconds: float = 0.0,
-    target_language: str | None = None
+async def _try_all_models(
+    text: str,
+    language: str,
+    duration_seconds: float,
+    target_language: str | None,
+    models: list[str],
+    api_key: str
 ) -> FormattedResult:
-    """Format transcription text using OpenRouter LLM.
-
-    Tries each model in the fallback chain until one succeeds.
-    On first call, discovers available free models from OpenRouter API.
-    If no API key is configured, returns the original text unchanged.
-
-    Args:
-        text: Raw transcription text.
-        language: Detected language code (e.g. "ru", "en").
-        duration_seconds: Audio duration to dynamically place summary.
-        target_language: If set to "ru", performs translation to Russian.
-
-    Returns:
-        FormattedResult with formatted text and model info.
-    """
-    config = load_config()
-    api_key = config.openrouter.api_key
-
-    # If no API key — return text as-is (graceful degradation)
-    if not api_key:
-        logger.info("OpenRouter API key not set, skipping LLM formatting")
-        return FormattedResult(formatted_text=text, model_used="none", error="API key not configured")
-
-    if not text or len(text.strip()) < 10:
-        return FormattedResult(formatted_text=text, model_used="none")
-
-    # Get models: configured + dynamically discovered
-    models = await _get_models()
-
-    # Try each model in the fallback chain
+    """Try each model in sequence for formatting."""
     last_error = ""
     for model in models:
         try:
@@ -278,11 +252,56 @@ async def format_with_llm(
             logger.warning("Model %s failed: %s", model, last_error)
             continue
 
-    # All models failed — return original text
     logger.error("All %d LLM models failed. Last error: %s", len(models), last_error)
     return FormattedResult(
         formatted_text=text,
         model_used="none",
         error=f"Все модели недоступны: {last_error[:100]}",
     )
+
+
+# Максимальное время на перебор всех моделей (секунды)
+LLM_TOTAL_TIMEOUT = 90.0
+
+async def format_with_llm(
+    text: str,
+    language: str = "",
+    duration_seconds: float = 0.0,
+    target_language: str | None = None
+) -> FormattedResult:
+    """Format transcription text using OpenRouter LLM.
+
+    Tries each model in the fallback chain until one succeeds.
+    Total execution is bounded by LLM_TOTAL_TIMEOUT.
+    """
+    config = load_config()
+    api_key = config.openrouter.api_key
+
+    if not api_key:
+        logger.info("OpenRouter API key not set, skipping LLM formatting")
+        return FormattedResult(formatted_text=text, model_used="none", error="API key not configured")
+
+    if not text or len(text.strip()) < 10:
+        return FormattedResult(formatted_text=text, model_used="none")
+
+    models = await _get_models()
+
+    try:
+        # Wrap the whole fallback chain in a single timeout
+        result = await asyncio.wait_for(
+            _try_all_models(text, language, duration_seconds, target_language, models, api_key),
+            timeout=LLM_TOTAL_TIMEOUT
+        )
+        return result
+    except asyncio.TimeoutError:
+        logger.warning(
+            "LLM formatting timed out after %.0fs total. Returning raw text.",
+            LLM_TOTAL_TIMEOUT
+        )
+        return FormattedResult(
+            formatted_text=text,
+            model_used="none",
+            error="Timeout ожидания LLM — выведен оригинальный текст"
+        )
+
 

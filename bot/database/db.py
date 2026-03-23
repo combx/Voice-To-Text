@@ -49,9 +49,16 @@ class Database:
                     status TEXT NOT NULL DEFAULT 'pending',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     completed_at TIMESTAMP,
+                    raw_text TEXT,
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
             """)
+            # Auto-migrate: add raw_text column if it doesn't exist (for existing DBs)
+            try:
+                await db.execute("ALTER TABLE transcriptions ADD COLUMN raw_text TEXT")
+            except aiosqlite.OperationalError:
+                pass  # Column already exists
+            
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_transcriptions_status "
                 "ON transcriptions (status)"
@@ -146,6 +153,24 @@ class Database:
                 (transcription_id,),
             )
             await db.commit()
+
+    async def save_raw_text(self, transcription_id: int, text: str) -> None:
+        """Save raw transcription text for later use (e.g., translation)."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE transcriptions SET raw_text = ? WHERE id = ?",
+                (text, transcription_id),
+            )
+            await db.commit()
+
+    async def get_raw_text(self, transcription_id: int) -> Optional[str]:
+        """Get raw transcription text by ID."""
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT raw_text FROM transcriptions WHERE id = ?", (transcription_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else None
 
     async def get_stats(self) -> dict:
         """Get bot usage statistics."""

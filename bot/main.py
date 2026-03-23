@@ -10,7 +10,6 @@ from aiogram.enums import ParseMode
 
 from bot.config import load_config
 from bot.database.db import get_db
-from bot.handlers import start, admin, media
 
 
 async def main() -> None:
@@ -46,6 +45,7 @@ async def main() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dp = Dispatcher()
+    dp.workflow_data["config"] = config
 
     # Register routers
     from bot.handlers import start, admin, media

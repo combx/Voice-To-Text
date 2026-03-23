@@ -163,13 +163,30 @@ def _sync_create_transcript(api_key: str, audio_url: str) -> str:
     return transcript_id
 
 
-def _sync_poll_transcript(api_key: str, transcript_id: str) -> dict:
-    """Poll until transcription is complete (synchronous). Returns full JSON."""
+def _sync_poll_transcript(
+    api_key: str,
+    transcript_id: str,
+    max_wait_seconds: int = 1800,
+) -> dict:
+    """Poll until transcription is complete (synchronous). Returns full JSON.
+
+    Args:
+        max_wait_seconds: Maximum total wait time. Raises RuntimeError if exceeded.
+                          Default is 1800 seconds (30 minutes).
+    """
     headers = {"authorization": api_key}
     url = f"{ASSEMBLYAI_BASE}/transcript/{transcript_id}"
     timeout = httpx.Timeout(timeout=30.0)
+    start_time = time.monotonic()
 
     while True:
+        elapsed = time.monotonic() - start_time
+        if elapsed > max_wait_seconds:
+            raise RuntimeError(
+                f"Транскрипция {transcript_id} не завершилась за "
+                f"{max_wait_seconds // 60} минут. Попробуйте ещё раз."
+            )
+
         with httpx.Client(timeout=timeout, http2=True) as client:
             resp = client.get(url, headers=headers)
 
@@ -177,15 +194,14 @@ def _sync_poll_transcript(api_key: str, transcript_id: str) -> dict:
         status = data["status"]
 
         if status == "completed":
-            logger.info("Transcript %s completed", transcript_id)
+            logger.info("Transcript %s completed in %.1fs", transcript_id, elapsed)
             return data
         elif status == "error":
             error = data.get("error", "Unknown error")
             raise RuntimeError(f"Ошибка распознавания: {error}")
         else:
-            logger.debug("Transcript %s status: %s", transcript_id, status)
-            import time as _time
-            _time.sleep(3)
+            logger.debug("Transcript %s status: %s (%.0fs elapsed)", transcript_id, status, elapsed)
+            time.sleep(3)
 
 
 async def transcribe_audio(wav_path: str) -> TranscriptionResult:
