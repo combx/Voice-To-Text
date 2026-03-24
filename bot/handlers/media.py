@@ -140,7 +140,7 @@ async def _process_media(message: Message, input_path: str, file_name: str, file
             f"💾 Размер: {size_str}\n"
             f"⬇️ Загрузка: {dl_str}\n"
             f"⏱ Длительность: {duration_str}\n"
-            f"💰 Баланс: Звук ${balance['remaining']:.2f} | Текст ${or_balance['remaining']:.2f}\n"
+            f"💰 Баланс (Звук): ${balance['remaining']:.2f} (~{balance['hours_remaining']:.0f}ч)\n"
             f"📝 ID задачи: {transcription_id}"
         )
 
@@ -209,7 +209,8 @@ async def _process_media(message: Message, input_path: str, file_name: str, file
             await message.answer(
                 f"✨ Форматирую текст...\n"
                 f"📁 {file_name}\n"
-                f"⏱ Длительность: {duration_str}"
+                f"⏱ Длительность: {duration_str}\n"
+                f"🤖 Баланс (Текст): ${or_balance['remaining']:.2f}"
             )
             # Heartbeat for LLM formatting
             heartbeat_active = True
