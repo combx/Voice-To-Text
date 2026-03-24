@@ -240,10 +240,6 @@ def _sync_discover_free_models() -> list[str]:
 
 async def _get_models(mode: str = "paid") -> list[str]:
     """Get the list of models to try, based on user mode."""
-    if mode == "paid":
-        logger.info("Using paid models: %s", FAST_PAID_MODELS)
-        return FAST_PAID_MODELS.copy()
-
     global _cached_free_models
     
     config = load_config()
@@ -262,6 +258,14 @@ async def _get_models(mode: str = "paid") -> list[str]:
     # Merge: configured first (user preference), then discovered as fallback
     seen = set()
     merged = []
+    
+    if mode == "paid":
+        logger.info("Using paid models with free fallback: %s", FAST_PAID_MODELS)
+        for m in FAST_PAID_MODELS:
+            if m not in seen:
+                seen.add(m)
+                merged.append(m)
+                
     for m in configured_models + _cached_free_models:
         if m not in seen:
             seen.add(m)
