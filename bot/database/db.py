@@ -34,6 +34,7 @@ class Database:
                     username TEXT,
                     full_name TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'pending',
+                    llm_mode TEXT NOT NULL DEFAULT 'paid',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -53,11 +54,16 @@ class Database:
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
             """)
-            # Auto-migrate: add raw_text column if it doesn't exist (for existing DBs)
+            # Auto-migrate: add new columns if they don't exist
             try:
                 await db.execute("ALTER TABLE transcriptions ADD COLUMN raw_text TEXT")
             except aiosqlite.OperationalError:
-                pass  # Column already exists
+                pass
+            
+            try:
+                await db.execute("ALTER TABLE users ADD COLUMN llm_mode TEXT NOT NULL DEFAULT 'paid'")
+            except aiosqlite.OperationalError:
+                pass
             
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_transcriptions_status "
@@ -71,13 +77,14 @@ class Database:
         username: Optional[str],
         full_name: str,
         status: str = "pending",
+        llm_mode: str = "paid",
     ) -> None:
         """Add a new user to the database."""
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
-                "INSERT OR IGNORE INTO users (user_id, username, full_name, status) "
-                "VALUES (?, ?, ?, ?)",
-                (user_id, username, full_name, status),
+                "INSERT OR IGNORE INTO users (user_id, username, full_name, status, llm_mode) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (user_id, username, full_name, status, llm_mode),
             )
             await db.commit()
 
@@ -107,6 +114,15 @@ class Database:
             await db.execute(
                 "UPDATE users SET status = ? WHERE user_id = ?",
                 (status, user_id),
+            )
+            await db.commit()
+
+    async def update_user_llm_mode(self, user_id: int, mode: str) -> None:
+        """Update user LLM mode (paid or free)."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE users SET llm_mode = ? WHERE user_id = ?",
+                (mode, user_id),
             )
             await db.commit()
 

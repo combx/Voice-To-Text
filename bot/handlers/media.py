@@ -102,6 +102,15 @@ async def _process_media(message: Message, input_path: str, file_name: str, file
             )
             return
 
+        user = await db.get_user(message.from_user.id)
+        llm_mode = user.get("llm_mode", "paid") if user else "paid"
+        
+        # Get OpenRouter balance
+        or_balance = {"remaining": 0.0}
+        if config.openrouter.api_key:
+            from bot.services.formatter import get_openrouter_balance
+            or_balance = await get_openrouter_balance(config.openrouter.api_key)
+
         # Status: Preparing audio
         size_str = format_file_size(file_size_bytes) if file_size_bytes else "неизвестно"
         dl_str = f"{download_time:.1f} сек" if download_time else "—"
@@ -131,7 +140,7 @@ async def _process_media(message: Message, input_path: str, file_name: str, file
             f"💾 Размер: {size_str}\n"
             f"⬇️ Загрузка: {dl_str}\n"
             f"⏱ Длительность: {duration_str}\n"
-            f"💰 Баланс: ${balance['remaining']:.2f} (~{balance['hours_remaining']:.0f}ч)\n"
+            f"💰 Баланс: Звук ${balance['remaining']:.2f} | Текст ${or_balance['remaining']:.2f}\n"
             f"📝 ID задачи: {transcription_id}"
         )
 
@@ -207,7 +216,7 @@ async def _process_media(message: Message, input_path: str, file_name: str, file
             heartbeat_counter[0] = 0
             heartbeat_task = asyncio.create_task(_heartbeat("Форматирую"))
             try:
-                llm_result = await format_with_llm(text_for_llm, result.language, duration)
+                llm_result = await format_with_llm(text_for_llm, result.language, duration, mode=llm_mode)
             finally:
                 heartbeat_active = False
                 heartbeat_task.cancel()
@@ -407,8 +416,11 @@ async def handle_translate_callback(callback: CallbackQuery) -> None:
             await status_msg.edit_text("❌ Ошибка: Оригинальный текст транскрипции не найден в базе данных.")
             return
 
+        user = await db.get_user(callback.from_user.id)
+        llm_mode = user.get("llm_mode", "paid") if user else "paid"
+
         # Call LLM with translation mode
-        llm_result = await format_with_llm(dialogue_text, target_language="ru")
+        llm_result = await format_with_llm(dialogue_text, target_language="ru", mode=llm_mode)
         
         if llm_result.error:
             await status_msg.edit_text(f"❌ Ошибка перевода: {llm_result.error}")

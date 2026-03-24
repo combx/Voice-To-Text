@@ -1,7 +1,7 @@
 """Start command handler — greeting and access request."""
 
 from aiogram import Router, F
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from bot.config import load_config
 
@@ -193,3 +193,48 @@ async def on_reject_user(callback: CallbackQuery, **kwargs) -> None:
         )
     except Exception:
         pass
+
+
+@router.message(Command("llmode"))
+async def cmd_llmode(message: Message, **kwargs) -> None:
+    """Toggle LLM mode between free and paid."""
+    from bot.database.db import get_db
+    
+    config = kwargs.get("config") or load_config()
+    db = get_db()
+    
+    user = await db.get_user(message.from_user.id)
+    if not user and message.from_user.id != config.bot.admin_id:
+        await message.answer("❌ У вас нет доступа к этой команде.")
+        return
+        
+    if user and user["status"] != "approved" and message.from_user.id != config.bot.admin_id:
+        await message.answer("❌ У вас нет доступа к этой команде.")
+        return
+
+    parts = message.text.split()
+    if len(parts) == 2 and parts[1].lower() in ("free", "paid"):
+        new_mode = parts[1].lower()
+        if user:
+            await db.update_user_llm_mode(message.from_user.id, new_mode)
+        else:
+            # Admin who is not in DB yet
+            await db.add_user(
+                user_id=message.from_user.id,
+                username=message.from_user.username,
+                full_name=message.from_user.full_name,
+                status="approved",
+                llm_mode=new_mode
+            )
+        mode_str = "💸 Платный (быстрые нейросети)" if new_mode == "paid" else "🆓 Бесплатный (перебор моделей)"
+        await message.answer(f"✅ Режим форматирования изменён на:\n**{mode_str}**", parse_mode="Markdown")
+    else:
+        current_mode = user.get("llm_mode", "paid") if user else "paid"
+        mode_str = "💸 Платный" if current_mode == "paid" else "🆓 Бесплатный"
+        await message.answer(
+            f"Текущий режим форматирования: **{mode_str}**\n\n"
+            "Используйте команду для переключения:\n"
+            "`/llmode paid` — быстрые качественные платные модели (GPT-4o-mini, Claude)\n"
+            "`/llmode free` — бесплатные модели (может занимать больше времени)",
+            parse_mode="Markdown"
+        )

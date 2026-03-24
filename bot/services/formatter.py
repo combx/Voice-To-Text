@@ -168,6 +168,42 @@ def _sync_call_openrouter(
 # Cache for discovered free models
 _cached_free_models: list[str] | None = None
 
+FAST_PAID_MODELS = [
+    "openai/gpt-4o-mini",
+    "anthropic/claude-3-haiku",
+]
+
+async def get_openrouter_balance(api_key: str) -> dict:
+    """Fetch OpenRouter account balance via /v1/credits API.
+    
+    Returns a dict with 'total_credits', 'total_usage', 'remaining' in dollars.
+    """
+    if not api_key:
+        return {"total_credits": 0.0, "total_usage": 0.0, "remaining": 0.0}
+    
+    headers = {"Authorization": f"Bearer {api_key}"}
+    url = f"{OPENROUTER_BASE}/credits"
+    
+    try:
+        timeout = httpx.Timeout(10.0)
+        async with httpx.AsyncClient(timeout=timeout, http2=True) as client:
+            resp = await client.get(url, headers=headers)
+            
+        if resp.status_code == 200:
+            data = resp.json().get("data", {})
+            total_credits = data.get("total_credits", 0.0)
+            total_usage = data.get("total_usage", 0.0)
+            remaining = max(0.0, total_credits - total_usage)
+            return {
+                "total_credits": total_credits,
+                "total_usage": total_usage,
+                "remaining": remaining,
+            }
+    except Exception as e:
+        logger.warning("Could not fetch OpenRouter balance: %s", e)
+        
+    return {"total_credits": 0.0, "total_usage": 0.0, "remaining": 0.0}
+
 
 def _sync_discover_free_models() -> list[str]:
     """Query OpenRouter API for available free models.
@@ -202,8 +238,12 @@ def _sync_discover_free_models() -> list[str]:
         return []
 
 
-async def _get_models() -> list[str]:
-    """Get the list of models to try, with dynamic discovery + configured fallback."""
+async def _get_models(mode: str = "paid") -> list[str]:
+    """Get the list of models to try, based on user mode."""
+    if mode == "paid":
+        logger.info("Using paid models: %s", FAST_PAID_MODELS)
+        return FAST_PAID_MODELS.copy()
+
     global _cached_free_models
     
     config = load_config()
@@ -267,7 +307,8 @@ async def format_with_llm(
     text: str,
     language: str = "",
     duration_seconds: float = 0.0,
-    target_language: str | None = None
+    target_language: str | None = None,
+    mode: str = "paid",
 ) -> FormattedResult:
     """Format transcription text using OpenRouter LLM.
 
@@ -284,7 +325,7 @@ async def format_with_llm(
     if not text or len(text.strip()) < 10:
         return FormattedResult(formatted_text=text, model_used="none")
 
-    models = await _get_models()
+    models = await _get_models(mode)
 
     try:
         # Wrap the whole fallback chain in a single timeout

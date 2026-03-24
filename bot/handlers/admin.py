@@ -106,12 +106,24 @@ async def cmd_revoke(message: Message) -> None:
 
 
 @router.message(Command("stats"))
-async def cmd_stats(message: Message) -> None:
+async def cmd_stats(message: Message, **kwargs) -> None:
     """Show bot usage statistics."""
     from bot.database.db import get_db
 
     db = get_db()
     stats = await db.get_stats()
+    
+    config = kwargs.get("config") or load_config()
+    balance = await db.get_balance(
+        initial_balance=config.app.assemblyai_initial_balance,
+        rate_per_hour=config.app.assemblyai_rate_per_hour,
+    )
+    
+    or_balance_text = "Не настроен"
+    if config.openrouter.api_key:
+        from bot.services.formatter import get_openrouter_balance
+        or_bal = await get_openrouter_balance(config.openrouter.api_key)
+        or_balance_text = f"${or_bal['remaining']:.2f}"
 
     await message.answer(
         "📊 <b>Статистика бота:</b>\n\n"
@@ -120,6 +132,9 @@ async def cmd_stats(message: Message) -> None:
         f"   ⏳ Ожидают: {stats['pending_users']}\n"
         f"   ❌ Отклонено: {stats['rejected_users']}\n\n"
         f"📝 Расшифровок: {stats['total_transcriptions']}\n"
-        f"⏱ Обработано аудио: {stats['total_duration_formatted']}",
+        f"⏱ Обработано аудио: {stats['total_duration_formatted']}\n\n"
+        f"💰 <b>Баланс API:</b>\n"
+        f"🎙 Звук (AssemblyAI): ${balance['remaining']:.2f} (~{balance['hours_remaining']:.0f}ч)\n"
+        f"🤖 Текст (OpenRouter): {or_balance_text}",
         parse_mode="HTML",
     )
